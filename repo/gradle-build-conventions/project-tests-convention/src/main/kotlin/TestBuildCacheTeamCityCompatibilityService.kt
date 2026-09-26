@@ -31,6 +31,11 @@ abstract class TestBuildCacheTeamCityCompatibilityService :
 
     private val log = Logging.getLogger(javaClass)
 
+    private companion object {
+        /** EXPERIMENT, to be removed with the sleep in [onFinish]. */
+        const val SETTLE_MILLIS = 5_000L
+    }
+
     /** Read once: every event wants the same map, and reading it finalizes the parameters. */
     private val executionsFiles: Map<String, File> by lazy { parameters.executionsFiles.get() }
 
@@ -42,8 +47,19 @@ abstract class TestBuildCacheTeamCityCompatibilityService :
         if (!result.isFromCache && !result.isUpToDate) return
 
         val replay = TestExecutionsReplay(taskPath) { message, failure -> log.warn(message, failure) }
+        var count = 0
         for (message in replay.messagesFor(executionsFile)) {
             println("##teamcity[$message]")
+            count++
         }
+
+        // EXPERIMENT, to be removed: TeamCity loses the last 5-75 KB of a large replay, always the
+        // tail and always at the moment the build step's process exits. Gradle is not the one
+        // dropping it - the same volume through a reader as slow as the agent loses nothing - so
+        // this gives the agent quiet time to catch up before the build can end. Both lines below go
+        // through the same 'println' the messages do, so the marker is lost with them if the tail is.
+        println("TestReplay: $count messages of $taskPath emitted, settling for $SETTLE_MILLIS ms")
+        Thread.sleep(SETTLE_MILLIS)
+        println("TestReplay: $taskPath settled")
     }
 }
